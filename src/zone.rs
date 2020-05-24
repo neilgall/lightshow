@@ -13,7 +13,8 @@ pub struct ZoneConfig {
 
 
 pub struct Zone {
-	name: String,
+	pub name: String,
+	pub device_name: String,
 	gpios: Vec<GPIO>,
 	delay: Duration
 }
@@ -31,6 +32,7 @@ impl Zone {
 		}
 		Zone { 
 			name: String::from(&config.name),
+			device_name: String::from(&config.device_name),
 			gpios,
 			delay: Duration::from_millis(config.delay_millis)
 		}

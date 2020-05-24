@@ -4,8 +4,6 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 
 mod iot_client;
 mod settings;
@@ -13,11 +11,11 @@ mod zone;
 
 use iot_client::{IoTClient, IoTEvent};
 use settings::Settings;
-use zone::{Zone, ZoneConfig};
+use zone::Zone;
 
 
-fn register_devices(iot_client: &mut IoTClient, zones: &Vec<ZoneConfig>) {
-	for zone in zones.iter() {
+fn register_devices<'a>(iot_client: &mut IoTClient, zones: impl Iterator<Item = &'a Zone>) {
+	for zone in zones {
 		iot_client.get_shadow(&zone.device_name);
 		iot_client.add_listen_on_delta_callback(&zone.device_name);
 	}
@@ -39,22 +37,27 @@ fn handle_update(thing_name: &String, shadow: &serde_json::Value, zones: &HashMa
 	Some(())
 }
 
-fn receive_loop(rx: &mpsc::Receiver<IoTEvent>, zones: &HashMap<String, Zone>) {
+fn receive_loop(mut iot_client: &mut IoTClient, rx: &mpsc::Receiver<IoTEvent>, zones: &HashMap<String, Zone>) {
+	register_devices(&mut iot_client, zones.values());
 	loop {
 		let event = rx.recv().expect("receive error");
 		match event {
-			IoTEvent::Disconnect => 
-				return,
+			IoTEvent::Reconnect => {
+				// re-register subscriptions on reconnection
+				register_devices(&mut iot_client, zones.values());
+			}
 
-			IoTEvent::Get { thing_name, shadow } => 
-				if handle_get(&thing_name, &shadow, zones).is_none() {
+			IoTEvent::Get { thing_name, shadow } => {
+				if handle_get(&thing_name, &shadow, &zones).is_none() {
 					error!("failed to handle get {} {:?}", thing_name, shadow);
-				},
+				}
+			}
 
-			IoTEvent::Update { thing_name, shadow } => 
-				if handle_update(&thing_name, &shadow, zones).is_none() {
+			IoTEvent::Update { thing_name, shadow } => {
+				if handle_update(&thing_name, &shadow, &zones).is_none() {
 					error!("failed to handle update {} {:?}", thing_name, shadow);
 				}
+			}
 		}
 	}
 }
@@ -79,11 +82,7 @@ fn main() {
 	loop {
 		let mut iot_client = IoTClient::new(&s.iot_client, tx.clone())
 			.expect("Unable to initialise IoT client");
-		register_devices(&mut iot_client, &s.zones);
 
-		receive_loop(&rx, &zones);
-
-		debug!("receive loop exited");
-		thread::sleep(Duration::from_secs(10));
+		receive_loop(&mut iot_client, &rx, &zones);
 	}
 }

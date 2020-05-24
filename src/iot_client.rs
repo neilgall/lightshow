@@ -33,7 +33,7 @@ impl Drop for IoTClient {
 }
 
 pub enum IoTEvent {
-    Disconnect,
+    Reconnect,
 
     Get { 
         thing_name: String,
@@ -60,13 +60,18 @@ fn decode_payload(payload: &Arc<Vec<u8>>) -> Option<serde_json::Value> {
 
 fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEvent>) {
     debug!("iot client thread started");
+    let mut disconnected = false;
     loop {
         for notification in &receiver {
             debug!("notification: {:?}", notification);
             match &notification {
                 rumqtt::client::Notification::Disconnection => {
-                    sender.send(IoTEvent::Disconnect).expect("send_error");
-                    return;
+                    disconnected = true;
+                }
+
+                rumqtt::client::Notification::Reconnection if disconnected => {
+                    sender.send(IoTEvent::Reconnect).expect("send_error");
+                    disconnected = false;
                 }
 
                 rumqtt::client::Notification::Publish(packet) => {
