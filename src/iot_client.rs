@@ -60,19 +60,13 @@ fn decode_payload(payload: &Arc<Vec<u8>>) -> Option<serde_json::Value> {
 
 fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEvent>) {
     debug!("iot client thread started");
-    let mut disconnected = false;
     loop {
         for notification in &receiver {
             debug!("notification: {:?}", notification);
             match &notification {
                 rumqtt::client::Notification::Disconnection => {
-                    disconnected = true;
-                }
-
-                rumqtt::client::Notification::Reconnection if disconnected => {
-                    disconnected = false;
-                    // sender.send(IoTEvent::Disconnect).expect("send_error");
-                    // return;
+                    sender.send(IoTEvent::Disconnect).expect("send_error");
+                    return;
                 }
 
                 rumqtt::client::Notification::Publish(packet) => {

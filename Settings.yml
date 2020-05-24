@@ -10,7 +10,7 @@ zones:
   - name: Summerhouse
     device_name: summerhouse-lights
     pins: [24]
-    delay_millis: 0
+    delay_millis: 500
 
   - name: Garden
     device_name: garden-lights
