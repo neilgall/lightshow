@@ -1,0 +1,18 @@
+iot_client:
+  client_id: rust-lightshow
+  host: aa40w08kkflrp-ats.iot.eu-west-1.amazonaws.com
+  port: 8883
+  root_ca_path: ./root-CA.crt
+  private_key_path: ./3da6d73ded-private.pem.key
+  certificate_path: ./3da6d73ded-certificate.pem.crt
+
+zones:
+  - name: Summerhouse
+    device_name: summerhouse-lights
+    pins: [24]
+    delay_millis: 0
+
+  - name: Garden
+    device_name: garden-lights
+    pins: [14,15,25]
+    delay_millis: 500
