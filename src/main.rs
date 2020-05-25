@@ -71,18 +71,16 @@ fn main() {
 
 	debug!("settings: {:?}", s);
 
-	let (tx, rx) = mpsc::channel();
-
 	let mut zones = HashMap::new();
 	for zone_config in s.zones.iter() {
 		let zone = Zone::new(zone_config);
 		zones.insert(String::from(&zone_config.device_name), zone);
 	}
 
-	loop {
-		let mut iot_client = IoTClient::new(&s.iot_client, tx.clone())
-			.expect("Unable to initialise IoT client");
+	let (tx, rx) = mpsc::channel();
 
-		receive_loop(&mut iot_client, &rx, &zones);
-	}
+	let mut iot_client = IoTClient::new(&s.iot_client, tx)
+		.expect("Unable to initialise IoT client");
+
+	receive_loop(&mut iot_client, &rx, &zones);
 }
