@@ -18,3 +18,7 @@ controller. It could be used to turn anything on and off this way.
 `controller.rs` links the IoT client with the zones. On startup it publishes to the `get` MQTT topic via the IoT client, then enters a receive loop. When `get/accepted` and `update/delta` events arrive the appropriate zones are configured. If a zone changes state, a new reported state is published back to IoT core.
 
 The IoT core client monitors disconnect and reconnect events. After the second of these occurs, it notifies the controller which re-registers the MQTT subscriptions. Since my Raspberry Pi where this runs is several metres from the house its WiFi connection is not perfectly stable, and I have found this resubscription absolutely vital for reliable operation of MQTT.
+
+## Credits
+
+Thanks to Arnstein Kleven for his [aws-iot-device-sdk-rust](https://github.com/arnstein/aws-iot-device-sdk-rust) crate which helped inspire how to build the MQTT client.
