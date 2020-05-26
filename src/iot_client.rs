@@ -79,6 +79,7 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
 
                 rumqtt::client::Notification::Publish(packet) => {
                     debug!("notification: Publish {}", packet.topic_name);
+
                     if let Some( (thing_name, action) ) = decode_topic_name(&packet.topic_name) {
                         if let Some(shadow) = decode_payload(&packet.payload) {
                             if action == "get" {
@@ -91,6 +92,7 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
                         }
                     }
                 }
+                
                 _ => {}
             }
         }

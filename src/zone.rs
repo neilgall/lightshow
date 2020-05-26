@@ -23,6 +23,7 @@ pub struct Zone {
 impl Zone {
 	pub fn new(config: &ZoneConfig) -> Self {
 		let mut gpios = vec![];
+
 		for pin in config.pins.iter() {
 			if let Ok(gpio) = GPIO::new(*pin, GPIOMode::Write) {
 				gpios.push(gpio);
@@ -30,6 +31,7 @@ impl Zone {
 				error!("can't initialise GPIO pin {}", pin);
 			}
 		}
+
 		Zone { 
 			name: String::from(&config.name),
 			device_name: String::from(&config.device_name),
@@ -40,15 +42,18 @@ impl Zone {
 	}
 
 	pub fn set_state(&mut self, state: bool) -> Result<bool, std::io::Error> {
-		debug!("zone {} state {}", self.name, state);
+		info!("{} power {}", self.name, if state {"on"} else {"off"});
+
 		if state == self.state {
 			Ok(false)
+
 		} else {
 			let value = if state { GPIOData::High } else { GPIOData::Low };
 			for pin in &self.gpios {
 				pin.set(value)?;
 				thread::sleep(self.delay);
 			}
+
 			self.state = state;
 			Ok(true)
 		}

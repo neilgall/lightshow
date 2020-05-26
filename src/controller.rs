@@ -58,7 +58,7 @@ impl Controller {
 				IoTEvent::Delta { thing_name, shadow } => {
 					match self.handle_delta(&thing_name, &shadow) {
 						Ok(_) => {}
-						Err(e) => error!("Failed to handle get delta {}: {:?}", thing_name, e)
+						Err(e) => error!("Failed to handle delta {}: {:?}", thing_name, e)
 					} 
 				}
 			}
@@ -79,28 +79,42 @@ impl Controller {
 	}
 
 	fn handle_get(&mut self, thing_name: &String, shadow: &serde_json::Value) -> Result<(), UpdateError> {
+		debug!("Receive get response {}, {}", thing_name, shadow.to_string());
+
 		fn parse(shadow: &serde_json::Value) -> Option<String> {
 			let state = shadow["state"]["desired"]["state"].as_str()?;
 			Some(String::from(state))
 		}
-		debug!("Receive get response {}, {}", thing_name, shadow.to_string());
-		let state = parse(shadow).ok_or(UpdateError::ShadowError)?;
-		let zone = self.zones.get_mut(thing_name).ok_or(UpdateError::UnknownZone(thing_name.to_string()))?;
-		zone.set_state(state == "ON").map_err(UpdateError::GPIOError)?;
+
+		let state = parse(shadow)
+			.ok_or(UpdateError::ShadowError)?;
+		
+		let zone = self.zones.get_mut(thing_name)
+			.ok_or(UpdateError::UnknownZone(thing_name.to_string()))?;
+		
+		zone.set_state(state == "ON")
+			.map_err(UpdateError::GPIOError)?;
 
 		// always publish reported state after a get
 		self.publish_new_state(thing_name, &state)
 	}
 
 	fn handle_delta(&mut self, thing_name: &String, shadow: &serde_json::Value) -> Result<(), UpdateError> {
+		debug!("Receive shadow update {}, {}", thing_name, shadow.to_string());
+
 		fn parse(shadow: &serde_json::Value) -> Option<String> {
 			let state = shadow["state"]["state"].as_str()?;
 			Some(String::from(state))
 		}
-		debug!("Receive shadow update {}, {}", thing_name, shadow.to_string());
-		let state = parse(shadow).ok_or(UpdateError::ShadowError)?;
-		let zone = self.zones.get_mut(thing_name).ok_or(UpdateError::UnknownZone(thing_name.to_string()))?;
-		let updated = zone.set_state(state == "ON").map_err(UpdateError::GPIOError)?;
+
+		let state = parse(shadow)
+			.ok_or(UpdateError::ShadowError)?;
+		
+		let zone = self.zones.get_mut(thing_name)
+			.ok_or(UpdateError::UnknownZone(thing_name.to_string()))?;
+
+		let updated = zone.set_state(state == "ON")
+			.map_err(UpdateError::GPIOError)?;
 
 		// publish new state if a delta event results in a change
 		if !updated {
@@ -119,7 +133,9 @@ impl Controller {
 				}
 			}
 		});
+
 		debug!("Publish shadow update {}", new_shadow.to_string());
+		
 		self.iot_client.publish_shadow(&thing_name, new_shadow).map_err(UpdateError::IoTError)		
 	}
 }
