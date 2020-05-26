@@ -1,5 +1,5 @@
 
-use rumqtt::{QoS, ConnectError, ReconnectOptions, Receiver, MqttClient, MqttOptions};
+use rumqtt::{QoS, ReconnectOptions, Receiver, MqttClient, MqttOptions};
 use regex::Regex;
 use serde_json;
 use std::fs::read;
@@ -7,6 +7,7 @@ use std::sync::{Arc, mpsc::Sender};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 
+pub use rumqtt::{ClientError, ConnectError};
 
 #[derive(Debug, Deserialize)]
 pub struct IoTClientConfig {
@@ -35,11 +36,12 @@ impl Drop for IoTClient {
 pub enum IoTEvent {
     Reconnect,
 
-    Get { 
+    Get {
         thing_name: String,
         shadow: serde_json::Value
     },
-    Update {
+
+    Delta {
         thing_name: String,
         shadow: serde_json::Value
     }
@@ -47,7 +49,7 @@ pub enum IoTEvent {
 
 fn decode_topic_name(topic_name: &str) -> Option<(String, String)> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"^\$aws/things/([^/]+)/shadow/([^/]+)/accepted$").unwrap();
+        static ref RE: Regex = Regex::new(r"^\$aws/things/([^/]+)/shadow/([^/]+)/").unwrap();
     }
     let captures = RE.captures(topic_name)?;
     Some( (String::from(captures.get(1)?.as_str()), String::from(captures.get(2)?.as_str()) ) )
@@ -63,24 +65,26 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
     let mut disconnected = false;
     loop {
         for notification in &receiver {
-            debug!("notification: {:?}", notification);
             match &notification {
                 rumqtt::client::Notification::Disconnection => {
+                    debug!("notification: Disconnection");
                     disconnected = true;
                 }
 
                 rumqtt::client::Notification::Reconnection if disconnected => {
+                    debug!("notification: Reconnection");
                     sender.send(IoTEvent::Reconnect).expect("send_error");
                     disconnected = false;
                 }
 
                 rumqtt::client::Notification::Publish(packet) => {
+                    debug!("notification: Publish {}", packet.topic_name);
                     if let Some( (thing_name, action) ) = decode_topic_name(&packet.topic_name) {
                         if let Some(shadow) = decode_payload(&packet.payload) {
                             if action == "get" {
                                 sender.send(IoTEvent::Get { thing_name, shadow }).expect("send error");
                             } else if action == "update" {
-                                sender.send(IoTEvent::Update { thing_name, shadow }).expect("send error");
+                                sender.send(IoTEvent::Delta { thing_name, shadow }).expect("send error");
                             } else {
                                 debug!("can't decode notification {:?}", notification);
                             }
@@ -111,25 +115,31 @@ impl IoTClient {
         })
     }
 
-    pub fn get_shadow(&mut self, thing_name: &str) {
+    pub fn get_shadow(&mut self, thing_name: &str) -> Result<(), ClientError> {
         let shadow_get = format!("$aws/things/{}/shadow/get", thing_name);
         let shadow_get_accepted = format!("$aws/things/{}/shadow/get/accepted", thing_name);
-        self.subscribe(&shadow_get_accepted, QoS::AtMostOnce);
+        self.subscribe(&shadow_get_accepted, QoS::AtMostOnce)?;
         sleep(Duration::from_millis(250));
-        self.publish(shadow_get, QoS::AtMostOnce, "{}");
+        self.publish(shadow_get, QoS::AtMostOnce, "{}")
     }
 
-    pub fn add_listen_on_delta_callback(&mut self, thing_name: &str) {
-        let shadow_topic = String::from(format!("$aws/things/{}/shadow/update/accepted", thing_name));
-        self.subscribe(&shadow_topic, QoS::AtMostOnce);
+    pub fn subscribe_to_shadow_delta(&mut self, thing_name: &str) -> Result<(), ClientError> {
+        let shadow_topic = String::from(format!("$aws/things/{}/shadow/update/delta", thing_name));
+        self.subscribe(&shadow_topic, QoS::AtMostOnce)
     }
 
-    fn subscribe (&mut self, topic_name: &str, qos: QoS) {
-        self.mqtt_client.subscribe(topic_name, qos).expect("subscribe failed");
+    pub fn publish_shadow(&mut self, thing_name: &str, shadow: serde_json::Value) -> Result<(), ClientError> {
+        let shadow_topic = String::from(format!("$aws/things/{}/shadow/update", thing_name));
+        let payload = shadow.to_string();
+        self.publish(shadow_topic, QoS::AtMostOnce, &payload)
     }
 
-    fn publish (&mut self, topic_name: String, qos: QoS, payload: &str) {
-        self.mqtt_client.publish(topic_name, qos, false, payload).expect("publish failed");
+    fn subscribe(&mut self, topic_name: &str, qos: QoS) -> Result<(), ClientError> {
+        self.mqtt_client.subscribe(topic_name, qos)
+    }
+
+    fn publish(&mut self, topic_name: String, qos: QoS, payload: &str) -> Result<(), ClientError> {
+        self.mqtt_client.publish(topic_name, qos, false, payload)
     }
 }
 
@@ -147,7 +157,7 @@ mod test {
 
     #[test]
     fn test_decode_topic_name_update() {
-        let decode = decode_topic_name("$aws/things/bar-device/shadow/update/accepted").unwrap();
+        let decode = decode_topic_name("$aws/things/bar-device/shadow/update/delta").unwrap();
         assert_eq!(String::from("bar-device"), decode.0);
         assert_eq!(String::from("update"), decode.1);
     }
@@ -155,10 +165,5 @@ mod test {
     #[test]
     fn test_decode_topic_name_missing_thing_name() {
         assert!(decode_topic_name("$aws/things/shadow/get/accepted").is_none());
-    }
-
-    #[test]
-    fn test_decode_topic_name_not_accepted() {
-        assert!(decode_topic_name("$aws/things/foo-device/shadow/get/rejected").is_none());
     }
 }

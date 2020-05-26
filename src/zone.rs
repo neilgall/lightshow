@@ -1,5 +1,4 @@
 use rustpi_io::gpio::*;
-use std::error::Error;
 use std::thread;
 use std::time::Duration;
 
@@ -16,12 +15,13 @@ pub struct Zone {
 	pub name: String,
 	pub device_name: String,
 	gpios: Vec<GPIO>,
-	delay: Duration
+	delay: Duration,
+	state: bool
 }
 
 
 impl Zone {
-	pub fn new(config: &ZoneConfig) -> Self{
+	pub fn new(config: &ZoneConfig) -> Self {
 		let mut gpios = vec![];
 		for pin in config.pins.iter() {
 			if let Ok(gpio) = GPIO::new(*pin, GPIOMode::Write) {
@@ -34,17 +34,23 @@ impl Zone {
 			name: String::from(&config.name),
 			device_name: String::from(&config.device_name),
 			gpios,
-			delay: Duration::from_millis(config.delay_millis)
+			delay: Duration::from_millis(config.delay_millis),
+			state: false
 		}
 	}
 
-	pub fn set_state(&self, state: bool) -> Result<(), Box<dyn Error>> {
+	pub fn set_state(&mut self, state: bool) -> Result<bool, std::io::Error> {
 		debug!("zone {} state {}", self.name, state);
-		let value = if state { GPIOData::High } else { GPIOData::Low };
-		for pin in &self.gpios {
-			pin.set(value)?;
-			thread::sleep(self.delay);
+		if state == self.state {
+			Ok(false)
+		} else {
+			let value = if state { GPIOData::High } else { GPIOData::Low };
+			for pin in &self.gpios {
+				pin.set(value)?;
+				thread::sleep(self.delay);
+			}
+			self.state = state;
+			Ok(true)
 		}
-		Ok(())
 	}
 }
