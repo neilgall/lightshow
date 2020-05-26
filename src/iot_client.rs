@@ -33,6 +33,7 @@ impl Drop for IoTClient {
     }
 }
 
+#[derive(Debug)]
 pub enum IoTEvent {
     Reconnect,
 
@@ -60,6 +61,13 @@ fn decode_payload(payload: &Arc<Vec<u8>>) -> Option<serde_json::Value> {
     Some(serde_json::from_str(&payload_str).ok()?)
 }
 
+fn send(sender: &Sender<IoTEvent>, event: IoTEvent) {
+    match sender.send(event) {
+        Ok(_) => {}
+        Err(e) => error!("Failed to send event: {:?}", e)
+    }
+}
+
 fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEvent>) {
     debug!("iot client thread started");
     let mut disconnected = false;
@@ -73,7 +81,7 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
 
                 rumqtt::client::Notification::Reconnection if disconnected => {
                     debug!("notification: Reconnection");
-                    sender.send(IoTEvent::Reconnect).expect("send_error");
+                    send(&sender, IoTEvent::Reconnect);
                     disconnected = false;
                 }
 
@@ -83,16 +91,16 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
                     if let Some( (thing_name, action) ) = decode_topic_name(&packet.topic_name) {
                         if let Some(shadow) = decode_payload(&packet.payload) {
                             if action == "get" {
-                                sender.send(IoTEvent::Get { thing_name, shadow }).expect("send error");
+                                send(&sender, IoTEvent::Get { thing_name, shadow });
                             } else if action == "update" {
-                                sender.send(IoTEvent::Delta { thing_name, shadow }).expect("send error");
+                                send(&sender, IoTEvent::Delta { thing_name, shadow });
                             } else {
-                                debug!("can't decode notification {:?}", notification);
+                                error!("Failed to decode notification {:?}", notification);
                             }
                         }
                     }
                 }
-                
+
                 _ => {}
             }
         }
@@ -100,7 +108,6 @@ fn main(receiver: Receiver<rumqtt::client::Notification>, sender: Sender<IoTEven
 }
 
 impl IoTClient {
-
     pub fn new(config: &IoTClientConfig, sender: Sender<IoTEvent>) -> Result<Self, ConnectError> {
         let mqtt_options = MqttOptions::new(&config.client_id, &config.host, config.port)
             .set_ca(read(&config.root_ca_path)?)
@@ -118,30 +125,22 @@ impl IoTClient {
     }
 
     pub fn get_shadow(&mut self, thing_name: &str) -> Result<(), ClientError> {
-        let shadow_get = format!("$aws/things/{}/shadow/get", thing_name);
         let shadow_get_accepted = format!("$aws/things/{}/shadow/get/accepted", thing_name);
-        self.subscribe(&shadow_get_accepted, QoS::AtMostOnce)?;
+        self.mqtt_client.subscribe(&shadow_get_accepted, QoS::AtMostOnce)?;
         sleep(Duration::from_millis(250));
-        self.publish(shadow_get, QoS::AtMostOnce, "{}")
+
+        let shadow_get = format!("$aws/things/{}/shadow/get", thing_name);
+        self.mqtt_client.publish(shadow_get, QoS::AtMostOnce, false, "{}")
     }
 
     pub fn subscribe_to_shadow_delta(&mut self, thing_name: &str) -> Result<(), ClientError> {
         let shadow_topic = String::from(format!("$aws/things/{}/shadow/update/delta", thing_name));
-        self.subscribe(&shadow_topic, QoS::AtMostOnce)
+        self.mqtt_client.subscribe(&shadow_topic, QoS::AtMostOnce)
     }
 
     pub fn publish_shadow(&mut self, thing_name: &str, shadow: serde_json::Value) -> Result<(), ClientError> {
         let shadow_topic = String::from(format!("$aws/things/{}/shadow/update", thing_name));
-        let payload = shadow.to_string();
-        self.publish(shadow_topic, QoS::AtMostOnce, &payload)
-    }
-
-    fn subscribe(&mut self, topic_name: &str, qos: QoS) -> Result<(), ClientError> {
-        self.mqtt_client.subscribe(topic_name, qos)
-    }
-
-    fn publish(&mut self, topic_name: String, qos: QoS, payload: &str) -> Result<(), ClientError> {
-        self.mqtt_client.publish(topic_name, qos, false, payload)
+        self.mqtt_client.publish(shadow_topic, QoS::AtMostOnce, false, shadow.to_string())
     }
 }
 
